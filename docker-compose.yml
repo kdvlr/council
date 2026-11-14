@@ -1,0 +1,13 @@
+services:
+  council:
+    build: .
+    container_name: council
+    restart: unless-stopped
+    ports:
+      - "8089:8000"
+    env_file:
+      - .env
+    environment:
+      - COUNCIL_DATA_DIR=/data
+    volumes:
+      - ./data:/data
