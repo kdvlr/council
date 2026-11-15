@@ -22,3 +22,7 @@ cp .env.example .env
 # Edit .env with your LITELLM_BASE_URL and LITELLM_API_KEY
 docker compose up --build -d
 ```
+
+## Antigravity Skill
+
+A serverless version of Council that runs inside Antigravity using built-in agents lives in [`skills/council`](skills/council/README.md).
