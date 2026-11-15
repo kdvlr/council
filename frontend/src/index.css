@@ -253,3 +253,10 @@ body {
 .md-prose tr:nth-child(even) td {
   background-color: color-mix(in srgb, var(--md-surface-container-low) 60%, transparent);
 }
+
+/* Prevent Mermaid offscreen render scratch containers from ever flashing in document.body */
+body > div[id^="dmmd-"],
+body > svg[id^="mmd-"] {
+  display: none !important;
+}
+

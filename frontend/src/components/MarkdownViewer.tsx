@@ -12,6 +12,13 @@ interface MermaidBlockProps {
   isDark: boolean;
 }
 
+function normalizeMermaidSyntax(raw: string): string {
+  // Quote unquoted square-bracket node labels containing parentheses, e.g. A[Step (1)] -> A["Step (1)"]
+  return raw
+    .trim()
+    .replace(/(\b[A-Za-z0-9_-]+)\[([^\]"\n]*[()][^\]"\n]*)\]/g, '$1["$2"]');
+}
+
 const MermaidBlock: React.FC<MermaidBlockProps> = ({ chart, isDark }) => {
   const rawId = useId().replace(/[^a-zA-Z0-9]/g, '');
   const [svg, setSvg] = useState<string | null>(null);
@@ -19,30 +26,49 @@ const MermaidBlock: React.FC<MermaidBlockProps> = ({ chart, isDark }) => {
 
   useEffect(() => {
     let cancelled = false;
+    const renderId = `mmd-${rawId}-${Math.random().toString(36).slice(2, 7)}`;
+
+    const cleanupOrphanDom = (id: string) => {
+      document.getElementById(id)?.remove();
+      document.getElementById(`d${id}`)?.remove();
+    };
+
     const timer = window.setTimeout(async () => {
       try {
         const mermaid = (await import('mermaid')).default;
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: 'strict',
+          suppressErrorRendering: true,
           theme: isDark ? 'dark' : 'default',
         });
-        const renderId = `mmd-${rawId}-${Math.random().toString(36).slice(2, 7)}`;
-        const { svg: rendered } = await mermaid.render(renderId, chart.trim());
+
+        const candidate = normalizeMermaidSyntax(chart);
+        const isValid = await mermaid.parse(candidate, { suppressErrors: true });
+        if (!isValid) {
+          cleanupOrphanDom(renderId);
+          if (!cancelled) setFailed(true);
+          return;
+        }
+
+        const { svg: rendered } = await mermaid.render(renderId, candidate);
+        cleanupOrphanDom(renderId);
         if (!cancelled) {
           setSvg(rendered);
           setFailed(false);
         }
       } catch {
+        cleanupOrphanDom(renderId);
         if (!cancelled) {
           setFailed(true);
         }
       }
-    }, 280);
+    }, 350);
 
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
+      cleanupOrphanDom(renderId);
     };
   }, [chart, isDark, rawId]);
 

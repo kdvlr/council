@@ -30,6 +30,7 @@ class CompletionResult:
 class LiteLLMClient:
     def __init__(self) -> None:
         self._pricing_cache: dict[str, tuple[float, float]] = {}
+        self._no_custom_temp_models: set[str] = set()
 
     def _headers(self) -> dict[str, str]:
         headers = {"Content-Type": "application/json"}
@@ -196,9 +197,10 @@ class LiteLLMClient:
                 "model": model,
                 "messages": messages,
                 "stream": True,
-                "temperature": temperature,
                 "stream_options": {"include_usage": True},
             }
+            if model not in self._no_custom_temp_models:
+                body["temperature"] = temperature
 
             try:
                 async with httpx.AsyncClient(timeout=timeout_sec) as client:
@@ -210,6 +212,15 @@ class LiteLLMClient:
                     ) as resp:
                         if resp.status_code >= 400:
                             err_body = (await resp.aread()).decode("utf-8", errors="replace")
+                            # Reasoning / thinking models (e.g., claude-opus-5-5, o1/o3) reject custom temperature != 1
+                            if resp.status_code == 400 and (
+                                "temperature" in err_body or "UnsupportedParamsError" in err_body
+                            ) and "temperature" in body:
+                                self._no_custom_temp_models.add(model)
+                                body.pop("temperature", None)
+                                return await self._stream_retry_adjusted(
+                                    client, body, model, on_delta, t0
+                                )
                             # Some upstream models dislike stream_options; fallback without it once
                             if resp.status_code == 400 and "stream_options" in err_body:
                                 body.pop("stream_options", None)
@@ -273,6 +284,66 @@ class LiteLLMClient:
                 raise last_err
 
         raise last_err or RuntimeError("Unknown LiteLLM completion failure")
+
+    async def _stream_retry_adjusted(
+        self,
+        client: httpx.AsyncClient,
+        body: dict[str, Any],
+        model: str,
+        on_delta: Optional[Callable[[str], None]],
+        t0: float,
+    ) -> CompletionResult:
+        chunks: list[str] = []
+        prompt_tokens = 0
+        completion_tokens = 0
+        async with client.stream(
+            "POST",
+            f"{settings.litellm_v1_url}/chat/completions",
+            headers=self._headers(),
+            json=body,
+        ) as resp:
+            if resp.status_code >= 400:
+                err_body = (await resp.aread()).decode("utf-8", errors="replace")
+                if resp.status_code == 400 and "stream_options" in err_body:
+                    body.pop("stream_options", None)
+                    return await self._stream_without_options(client, body, model, on_delta, t0)
+                raise RuntimeError(f"HTTP {resp.status_code} from {model}: {err_body[:320]}")
+            header_cost = resp.headers.get("x-litellm-response-cost")
+            async for raw_line in resp.aiter_lines():
+                line = raw_line.strip()
+                if not line or not line.startswith("data:"):
+                    continue
+                data_str = line[5:].strip()
+                if data_str == "[DONE]":
+                    break
+                try:
+                    pkt = json.loads(data_str)
+                except json.JSONDecodeError:
+                    continue
+                usage = pkt.get("usage")
+                if isinstance(usage, dict):
+                    prompt_tokens = int(usage.get("prompt_tokens") or prompt_tokens)
+                    completion_tokens = int(usage.get("completion_tokens") or completion_tokens)
+                choices = pkt.get("choices") or []
+                if choices:
+                    piece = (choices[0].get("delta") or {}).get("content")
+                    if piece:
+                        chunks.append(piece)
+                        if on_delta:
+                            on_delta(piece)
+
+        full_text = "".join(chunks)
+        latency_ms = int((time.perf_counter() - t0) * 1000)
+        if completion_tokens == 0 and full_text:
+            completion_tokens = max(1, len(full_text) // 4)
+        cost_usd = self._estimate_cost(model, prompt_tokens, completion_tokens, header_cost)
+        return CompletionResult(
+            content=full_text,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cost_usd=cost_usd,
+            latency_ms=latency_ms,
+        )
 
     async def _stream_without_options(
         self,
