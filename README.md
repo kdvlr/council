@@ -23,6 +23,10 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
+## Credits
+
+Mode 1 is inspired by Andrej Karpathy's [`karpathy/llm-council`](https://github.com/karpathy/llm-council), extended with self-excluded two-axis scoring, automatic top-rated Chairman selection, and **Blind Consensus Plan Mode** (Mode 2).
+
 ## Antigravity Skill
 
-A serverless version of Council that runs inside Antigravity using built-in agents lives in [`skills/council`](skills/council/README.md).
+A standalone, serverless Google Antigravity skill lives in [`kdvlr/agy-council`](https://github.com/kdvlr/agy-council).
