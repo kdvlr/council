@@ -7,7 +7,7 @@
 #   question    the user's question / planning request (string, required)
 #   context     extra context pasted into every prompt (string)
 #   seats       list of model tiers, one per seat. Tiers: "inherit", "pro",
-#               "flash", "flash_lite". Default: ["inherit", "pro", "flash"]
+#               "flash", "flash_lite". Default: ["inherit", "pro"]
 #   chairman    "auto" (highest peer-rated seat, default) or a seat index (0-based)
 #   max_rounds  Mode 2 only: max turns per participant (default 3)
 #   out_dir     directory for report.md + result.json (default: ./council_runs)
@@ -32,7 +32,7 @@ if not QUESTION:
 MODE = (A.get("mode") or "council").lower()
 CONTEXT = (A.get("context") or "").strip()
 VALID_TIERS = {"inherit", "pro", "flash", "flash_lite"}
-SEATS = A.get("seats") or ["inherit", "pro", "flash"]
+SEATS = A.get("seats") or ["inherit", "pro"]
 for s in SEATS:
     if s not in VALID_TIERS:
         raise ValueError(f"Unknown seat tier {s!r}; use one of {sorted(VALID_TIERS)}")
